@@ -601,6 +601,7 @@ window.__pick=(v,val)=>{
   if(v==='stSeasonIdx'){stSeasonIdx=+val;drawStandings();}
   if(v==='poSeasonIdx'){poSeasonIdx=+val;drawPlayoffs();}
   if(v==='drSeasonIdx'){drSeasonIdx=+val;drawDraft();}
+  if(v==='wvSeasonIdx'){wvSeasonIdx=+val;drawWaiver();}
 };
 function drawStandings(){
   const s=D.seasons[stSeasonIdx];
@@ -932,16 +933,22 @@ function drawDraft(){
 /* =================================================================
    WAIVER WIRE
 ================================================================= */
+let wvSeasonIdx=-1; // -1 = All-Time
 async function renderWaiver(){
   view.innerHTML='<div class="loading"><div class="spinner"></div>Loading transactions and the player list (this one is a big file)…</div>';
   await Promise.all([ensureTxns(), ensurePlayers()]);
-  // aggregate all seasons
-  const mgr={}; // owner -> {adds,drops,trades,faab}
-  const addCount={}; // player_id -> count
-  const bigBids=[]; // {owner,player,bid,season}
-  const trades=[];
-  const usesFaab = D.seasons.some(s=>s.league.settings && s.league.settings.waiver_type===2);
-  D.seasons.forEach(s=>{
+  wvSeasonIdx=-1; // default to All-Time
+  let html='<div class="fade"><div class="controls">'+seasonPicker(wvSeasonIdx,'wvSeasonIdx',true)+'</div><div id="wvBody"></div></div>';
+  view.innerHTML=html; drawWaiver();
+}
+function drawWaiver(){
+  // Which seasons to include: all, or just the picked one.
+  const seasons = wvSeasonIdx===-1 ? D.seasons : [D.seasons[wvSeasonIdx]];
+  const scopeLabel = wvSeasonIdx===-1 ? ('all '+D.seasons.length+' seasons') : (seasons[0].league.season+' season');
+
+  const mgr={}, addCount={}, bigBids=[], trades=[];
+  const usesFaab = seasons.some(s=>s.league.settings && s.league.settings.waiver_type===2);
+  seasons.forEach(s=>{
     (s.txns||[]).forEach(t=>{
       if(t.status!=='complete') return;
       if(t.type==='trade'){
@@ -964,8 +971,11 @@ async function renderWaiver(){
   const topAdds=Object.entries(addCount).sort((a,b)=>b[1]-a[1]).slice(0,12);
   bigBids.sort((a,b)=>b.bid-a.bid);
 
-  let h='<div class="fade"><div class="section-title">Wheeling & Dealing — All-Time</div>'
-    +'<div class="section-note">Every completed waiver claim, free-agent add, and trade, totaled across all '+D.seasons.length+' seasons.</div>';
+  const body=document.getElementById('wvBody');
+  if(!mgrArr.length){ body.innerHTML='<div class="empty">No transactions recorded for this season.</div>'; return; }
+
+  let h='<div class="section-title">Wheeling & Dealing'+(wvSeasonIdx===-1?' — All-Time':'')+'</div>'
+    +'<div class="section-note">Every completed waiver claim, free-agent add, and trade, totaled across '+scopeLabel+'.</div>';
   h+='<div class="panel pad"><table><thead><tr><th>Manager</th><th>Adds</th><th>Drops</th><th>Trades</th>'+(usesFaab?'<th>FAAB Spent</th>':'')+'</tr></thead><tbody>';
   mgrArr.forEach((r,i)=>{
     h+=`<tr><td><span class="rank ${i<3?'r'+(i+1):''}">${i+1}</span>${teamCell(r.owner)}</td>
@@ -980,16 +990,16 @@ async function renderWaiver(){
 
   if(usesFaab){
     h+='<div><div class="section-title">Biggest FAAB Bids</div><div class="panel pad"><table><thead><tr><th style="text-align:left">Player</th><th style="text-align:left">By</th><th>$</th></tr></thead><tbody>';
-    bigBids.slice(0,12).forEach(b=>{ h+=`<tr><td style="text-align:left">${esc(playerName(b.player))} <span class="hd">${esc(b.season)}</span></td><td style="text-align:left">${esc(nameOf(b.owner))}</td><td class="num">$${b.bid}</td></tr>`; });
+    bigBids.slice(0,12).forEach(b=>{ h+=`<tr><td style="text-align:left">${esc(playerName(b.player))}${wvSeasonIdx===-1?' <span class="hd">'+esc(b.season)+'</span>':''}</td><td style="text-align:left">${esc(nameOf(b.owner))}</td><td class="num">$${b.bid}</td></tr>`; });
     h+='</tbody></table></div></div>';
   } else {
     h+='<div><div class="section-title">Recent Trades</div><div class="panel pad">';
-    if(trades.length){ h+='<table><tbody>'; trades.slice(-12).reverse().forEach(t=>{ h+=`<tr><td style="text-align:left">${(t.rosters||[]).filter(Boolean).map(nameOf).map(esc).join(' ⇄ ')} <span class="hd">${esc(t.season)}</span></td></tr>`; }); h+='</tbody></table>'; }
+    if(trades.length){ h+='<table><tbody>'; trades.slice(-12).reverse().forEach(t=>{ h+=`<tr><td style="text-align:left">${(t.rosters||[]).filter(Boolean).map(nameOf).map(esc).join(' ⇄ ')}${wvSeasonIdx===-1?' <span class="hd">'+esc(t.season)+'</span>':''}</td></tr>`; }); h+='</tbody></table>'; }
     else h+='<div class="empty">No trades recorded.</div>';
     h+='</div></div>';
   }
-  h+='</div></div>';
-  view.innerHTML=h;
+  h+='</div>';
+  body.innerHTML=h;
 }
 
 /* =================================================================
