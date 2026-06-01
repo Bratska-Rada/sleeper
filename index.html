@@ -736,8 +736,50 @@ let poSeasonIdx=0;
 function renderPlayoffs(){
   // default to most recent completed
   const ci=D.seasons.findIndex(seasonComplete); if(ci>=0)poSeasonIdx=ci;
-  let html='<div class="fade"><div class="controls">'+seasonPicker(poSeasonIdx,'poSeasonIdx')+'</div><div id="poBody"></div></div>';
+  let html='<div class="fade">';
+  html+=allTimePlayoffTable();
+  html+='<div class="section-title">Bracket by Season</div>';
+  html+='<div class="controls">'+seasonPicker(poSeasonIdx,'poSeasonIdx')+'</div><div id="poBody"></div></div>';
   view.innerHTML=html; drawPlayoffs();
+}
+/* All-time playoff résumé per manager, built from every season's winners bracket. */
+function allTimePlayoffTable(){
+  const rec={}; // owner -> {titles,finals,third,trips,pw,pl,best}
+  D.seasons.forEach(s=>{
+    const wb=s.winners||[]; if(!wb.length) return;
+    const champ=championOf(s), ru=runnerUpOf(s);
+    const po=playoffRosterIds(s);
+    po.forEach(rid=>{ const o=s.rosterById[rid]&&s.rosterById[rid].owner_id; if(!o)return;
+      (rec[o]=rec[o]||{titles:0,finals:0,trips:0,pw:0,pl:0,best:99}).trips++; });
+    if(champ){ const a=rec[champ]=rec[champ]||{titles:0,finals:0,trips:0,pw:0,pl:0,best:99}; a.titles++; a.finals++; a.best=Math.min(a.best,1); }
+    if(ru){ const a=rec[ru]=rec[ru]||{titles:0,finals:0,trips:0,pw:0,pl:0,best:99}; a.finals++; a.best=Math.min(a.best,2); }
+    // playoff W-L and best finish from bracket placements
+    wb.forEach(m=>{
+      const wo=m.w!=null&&s.rosterById[m.w]?s.rosterById[m.w].owner_id:null;
+      const lo=m.l!=null&&s.rosterById[m.l]?s.rosterById[m.l].owner_id:null;
+      if(wo){(rec[wo]=rec[wo]||{titles:0,finals:0,trips:0,pw:0,pl:0,best:99}).pw++;}
+      if(lo){(rec[lo]=rec[lo]||{titles:0,finals:0,trips:0,pw:0,pl:0,best:99}).pl++;}
+      if(m.p){ // placement match sets a finish
+        if(wo){const a=rec[wo];a.best=Math.min(a.best,m.p);}
+        if(lo){const a=rec[lo];a.best=Math.min(a.best,m.p+1);}
+      }
+    });
+  });
+  const arr=Object.entries(rec).map(([o,a])=>({owner:o,...a,best:a.best===99?null:a.best}))
+    .sort((x,y)=>(y.titles-x.titles)||(y.finals-x.finals)||(y.trips-x.trips)||(y.pw-x.pw));
+  if(!arr.length) return '';
+  let h='<div class="section-title">All-Time Playoff Résumé</div>'
+    +'<div class="section-note">Titles, finals trips, playoff appearances, playoff win-loss record, and best-ever finish — across every season.</div>';
+  h+='<div class="panel pad"><table><thead><tr><th>Manager</th><th>🏆</th><th>Finals</th><th>Trips</th><th>PO W-L</th><th>Best Finish</th></tr></thead><tbody>';
+  const ord=n=>n==1?'1st':n==2?'2nd':n==3?'3rd':n+'th';
+  arr.forEach((r,i)=>{
+    h+=`<tr><td><span class="rank ${i<3?'r'+(i+1):''}">${i+1}</span>${teamCell(r.owner)}</td>
+      <td class="num">${r.titles?'<span class="pill gold">'+r.titles+'</span>':'—'}</td>
+      <td class="num">${r.finals||'—'}</td><td class="num">${r.trips}</td>
+      <td class="num">${r.pw}-${r.pl}</td>
+      <td class="num">${r.best?ord(r.best):'—'}</td></tr>`;
+  });
+  return h+'</tbody></table></div>';
 }
 function drawPlayoffs(){
   const s=D.seasons[poSeasonIdx];
@@ -795,8 +837,41 @@ let drSeasonIdx=0;
 async function renderDraft(){
   await ensureDrafts(); await ensureMatchups();
   drSeasonIdx=0;
-  let html='<div class="fade"><div class="controls">'+seasonPicker(drSeasonIdx,'drSeasonIdx')+'</div><div id="drBody"></div></div>';
+  let html='<div class="fade">';
+  html+=allTimeDraftTable();
+  html+='<div class="section-title">Draft Board by Season</div>';
+  html+='<div class="controls">'+seasonPicker(drSeasonIdx,'drSeasonIdx')+'</div><div id="drBody"></div></div>';
   view.innerHTML=html; drawDraft();
+}
+/* All-time draft value: every pick across every season, credited to the drafter. */
+function allTimeDraftTable(){
+  const prod={}; // owner -> {pts,picks,retained,drafts}
+  D.seasons.forEach(s=>{
+    const picks=s.draftPicks||[]; if(!picks.length) return;
+    const finalRosterPlayers={}; s.rosters.forEach(r=>finalRosterPlayers[r.owner_id]=new Set(r.players||[]));
+    const seen={};
+    picks.forEach(p=>{
+      const o=p.picked_by||(s.rosterById[p.roster_id]&&s.rosterById[p.roster_id].owner_id);
+      if(!o)return;
+      const a=prod[o]=prod[o]||{pts:0,picks:0,retained:0,drafts:new Set()};
+      a.picks++; a.drafts.add(s.league.season);
+      a.pts += (s.playerPoints&&s.playerPoints[p.player_id])||0;
+      if(finalRosterPlayers[o]&&finalRosterPlayers[o].has(p.player_id))a.retained++;
+    });
+  });
+  const arr=Object.entries(prod).map(([o,a])=>({owner:o,pts:a.pts,picks:a.picks,retained:a.retained,
+    drafts:a.drafts.size, ppp:a.picks?a.pts/a.picks:0, ret:a.picks?a.retained/a.picks:0}))
+    .sort((x,y)=>y.ppp-x.ppp);
+  if(!arr.length) return '';
+  let h='<div class="section-title">All-Time Draft Value</div>'
+    +'<div class="section-note">Across every draft: total points scored by each manager\'s picks, points per pick (the fairest measure since draft counts differ), and how often picks stuck on the roster.</div>';
+  h+='<div class="panel pad"><table><thead><tr><th>Manager</th><th>Drafts</th><th>Picks</th><th>Total Pts</th><th>Pts/Pick</th><th>Kept%</th></tr></thead><tbody>';
+  arr.forEach((r,i)=>{
+    h+=`<tr><td><span class="rank ${i<3?'r'+(i+1):''}">${i+1}</span>${teamCell(r.owner)}</td>
+      <td class="num">${r.drafts}</td><td class="num">${r.picks}</td><td class="num">${f1(r.pts)}</td>
+      <td class="num">${f1(r.ppp)}</td><td class="num">${(r.ret*100).toFixed(0)}%</td></tr>`;
+  });
+  return h+'</tbody></table></div>';
 }
 function drawDraft(){
   const s=D.seasons[drSeasonIdx];
@@ -891,8 +966,8 @@ async function renderWaiver(){
   const topAdds=Object.entries(addCount).sort((a,b)=>b[1]-a[1]).slice(0,12);
   bigBids.sort((a,b)=>b.bid-a.bid);
 
-  let h='<div class="fade"><div class="section-title">Wheeling & Dealing</div>'
-    +'<div class="section-note">Every completed waiver claim, free-agent add, and trade across all seasons.</div>';
+  let h='<div class="fade"><div class="section-title">Wheeling & Dealing — All-Time</div>'
+    +'<div class="section-note">Every completed waiver claim, free-agent add, and trade, totaled across all '+D.seasons.length+' seasons.</div>';
   h+='<div class="panel pad"><table><thead><tr><th>Manager</th><th>Adds</th><th>Drops</th><th>Trades</th>'+(usesFaab?'<th>FAAB Spent</th>':'')+'</tr></thead><tbody>';
   mgrArr.forEach((r,i)=>{
     h+=`<tr><td><span class="rank ${i<3?'r'+(i+1):''}">${i+1}</span>${teamCell(r.owner)}</td>
@@ -946,7 +1021,16 @@ async function renderTrends(){
   html+='<div class="panel pad"><table><thead><tr><th>Team</th><th>Wins</th><th>Expected</th><th>Luck</th></tr></thead><tbody>';
   luck.forEach(r=>{ html+=`<tr><td>${teamCell(r.owner)}</td><td class="num">${r.actual}</td><td class="num">${f1(r.exp)}</td>
     <td class="num ${r.luck>=0?'pos':'neg'}">${r.luck>=0?'+':''}${f1(r.luck)}</td></tr>`; });
-  html+='</tbody></table></div></div>';
+  html+='</tbody></table></div>';
+
+  // ---- All-time section ----
+  html+='<div class="section-title">All-Time Points Per Game</div>'
+    +'<div class="section-note">Average points scored per game across every season — the cleanest measure of who scores, regardless of luck or schedule.</div>'
+    +'<div class="panel chart-box"><div class="chart-wrap"><canvas id="cAllPPG"></canvas></div></div>';
+  html+='<div class="section-title">Scoring by Season</div>'
+    +'<div class="section-note">Each team\'s average points per game, season by season. Use the legend to focus on a team.</div>'
+    +'<div class="panel chart-box"><div class="chart-wrap" style="height:340px"><canvas id="cSeasonPPG"></canvas></div></div>';
+  html+='</div>';
   view.innerHTML=html;
 
   // build weekly series
@@ -976,6 +1060,43 @@ async function renderTrends(){
       backgroundColor:luck.map(r=>r.luck>=0?'#4aa8ff':'#ff5a6a'),borderRadius:5}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
       scales:{x:{grid:{display:false},ticks:{color:tickc,maxRotation:60,minRotation:45,font:{size:10}}},y:{grid:{color:gridc},ticks:{color:tickc}}}}}));
+
+  // ---- All-time charts ----
+  // Per-season PPG per owner, and all-time PPG.
+  const seasonsAsc=[...D.seasons].sort((a,b)=>(+a.league.season)-(+b.league.season));
+  const seasonLabels=seasonsAsc.map(s=>s.league.season);
+  const allPPG={}; // owner -> {pf, games}
+  const perSeason={}; // owner -> {season -> ppg}
+  seasonsAsc.forEach(s=>{
+    s.rosters.forEach(r=>{
+      const o=r.owner_id; if(!o)return;
+      const g=(r.settings.wins||0)+(r.settings.losses||0)+(r.settings.ties||0);
+      const pf=fpts(r);
+      if(g>0){
+        (allPPG[o]=allPPG[o]||{pf:0,games:0}); allPPG[o].pf+=pf; allPPG[o].games+=g;
+        (perSeason[o]=perSeason[o]||{})[s.league.season]=pf/g;
+      }
+    });
+  });
+  const ppgArr=Object.entries(allPPG).map(([o,a])=>({owner:o,ppg:a.games?a.pf/a.games:0}))
+    .sort((x,y)=>y.ppg-x.ppg);
+  charts.push(new Chart(document.getElementById('cAllPPG'),{type:'bar',
+    data:{labels:ppgArr.map(r=>nameOf(r.owner)),datasets:[{data:ppgArr.map(r=>+r.ppg.toFixed(1)),backgroundColor:'#f5c542',borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:tickc,maxRotation:60,minRotation:45,font:{size:10}}},y:{grid:{color:gridc},ticks:{color:tickc}}}}}));
+
+  const ownersAll=ppgArr.map(r=>r.owner);
+  const seasonSeries=ownersAll.map((o,i)=>({
+    label:nameOf(o),
+    data:seasonLabels.map(sl=> perSeason[o]&&perSeason[o][sl]!=null ? +perSeason[o][sl].toFixed(1) : null),
+    borderColor:palette[i%palette.length], backgroundColor:palette[i%palette.length],
+    tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:4, spanGaps:true
+  }));
+  charts.push(new Chart(document.getElementById('cSeasonPPG'),{type:'line',
+    data:{labels:seasonLabels,datasets:seasonSeries},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'nearest'},
+      plugins:{legend:{labels:{color:tickc,font:{family:'Sora',size:11},boxWidth:10}}},
+      scales:{x:{grid:{color:gridc},ticks:{color:tickc}},y:{grid:{color:gridc},ticks:{color:tickc}}}}}));
 }
 
 /* =================================================================
