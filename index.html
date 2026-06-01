@@ -1047,10 +1047,8 @@ async function callBot(userText){
     systemInstruction: { parts:[{text: system}] },
     generationConfig: {
       maxOutputTokens: 2048,
-      temperature: botMode==='smack'?1.1:0.6,
-      // 3.5 Flash thinks by default and thinking eats the output budget.
-      // Keep thinking minimal so the visible answer has room to finish.
-      thinkingConfig: { thinkingLevel: "LOW" }
+      temperature: botMode==='smack'?1.1:0.6
+      // thinking config is added per-model below (2.5 and 3.x use different params)
     },
     // Allow rough trash talk to get through, but keep hate speech filtered.
     safetySettings: botMode==='smack' ? [
@@ -1061,15 +1059,28 @@ async function callBot(userText){
     ] : undefined
   };
 
+  // Build the thinking setting the way each model generation expects.
+  // 3.x models use thinkingLevel; 2.5 models use thinkingBudget (0 = off).
+  function payloadFor(model){
+    const gc = Object.assign({}, payload.generationConfig);
+    if(/gemini-3/.test(model)){
+      gc.thinkingConfig = { thinkingLevel: "low" };
+    } else {
+      gc.thinkingConfig = { thinkingBudget: 0 }; // 2.5 family: thinking off
+    }
+    return Object.assign({}, payload, { generationConfig: gc });
+  }
+
   // Transport: deployed Worker (key stays server-side), or local bring-your-own-key.
   // Both retry on 503 (Gemini overloaded), then fall back to the lighter model.
   const sleep = ms => new Promise(res=>setTimeout(res,ms));
 
   async function tryOnce(model){
+    const mp = payloadFor(model);
     if(BOT_ENDPOINT){
       const r = await fetch(BOT_ENDPOINT, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({model, payload})
+        body: JSON.stringify({model, payload: mp})
       });
       return r;
     }
@@ -1077,7 +1088,7 @@ async function callBot(userText){
     return fetch(url, {
       method:'POST',
       headers:{'Content-Type':'application/json','x-goog-api-key':BYO_KEY},
-      body: JSON.stringify(payload)
+      body: JSON.stringify(mp)
     });
   }
 
