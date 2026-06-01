@@ -592,8 +592,9 @@ function renderStandings(){
   view.innerHTML=html;
   drawStandings();
 }
-function seasonPicker(curIdx,varName){
+function seasonPicker(curIdx,varName,allTime){
   let o=D.seasons.map((s,i)=>`<option value="${i}" ${i===curIdx?'selected':''}>${esc(s.league.season)} season</option>`).join('');
+  if(allTime){ o = `<option value="-1" ${curIdx===-1?'selected':''}>All-Time</option>` + o; }
   return `<label>Season</label><select onchange="window.__pick('${varName}',this.value)">${o}</select>`;
 }
 window.__pick=(v,val)=>{
@@ -732,14 +733,11 @@ function drawCompare(){
 /* =================================================================
    PLAYOFF HISTORY (brackets)
 ================================================================= */
-let poSeasonIdx=0;
+let poSeasonIdx=-1; // -1 = All-Time
 function renderPlayoffs(){
-  // default to most recent completed
-  const ci=D.seasons.findIndex(seasonComplete); if(ci>=0)poSeasonIdx=ci;
+  poSeasonIdx=-1; // default to All-Time
   let html='<div class="fade">';
-  html+=allTimePlayoffTable();
-  html+='<div class="section-title">Bracket by Season</div>';
-  html+='<div class="controls">'+seasonPicker(poSeasonIdx,'poSeasonIdx')+'</div><div id="poBody"></div></div>';
+  html+='<div class="controls">'+seasonPicker(poSeasonIdx,'poSeasonIdx',true)+'</div><div id="poBody"></div></div>';
   view.innerHTML=html; drawPlayoffs();
 }
 /* All-time playoff résumé per manager, built from every season's winners bracket. */
@@ -782,9 +780,10 @@ function allTimePlayoffTable(){
   return h+'</tbody></table></div>';
 }
 function drawPlayoffs(){
+  let body=document.getElementById('poBody');
+  if(poSeasonIdx===-1){ body.innerHTML=allTimePlayoffTable() || '<div class="empty">No playoff history yet.</div>'; return; }
   const s=D.seasons[poSeasonIdx];
   const wb=s.winners||[];
-  let body=document.getElementById('poBody');
   if(!wb.length){ body.innerHTML='<div class="empty">No playoff bracket yet for this season.</div>'; return; }
   // group by round
   const rounds={}; let maxR=0;
@@ -833,14 +832,12 @@ function matchupCard(s,m){
 /* =================================================================
    DRAFT ROOM
 ================================================================= */
-let drSeasonIdx=0;
+let drSeasonIdx=-1; // -1 = All-Time
 async function renderDraft(){
   await ensureDrafts(); await ensureMatchups();
-  drSeasonIdx=0;
+  drSeasonIdx=-1; // default to All-Time
   let html='<div class="fade">';
-  html+=allTimeDraftTable();
-  html+='<div class="section-title">Draft Board by Season</div>';
-  html+='<div class="controls">'+seasonPicker(drSeasonIdx,'drSeasonIdx')+'</div><div id="drBody"></div></div>';
+  html+='<div class="controls">'+seasonPicker(drSeasonIdx,'drSeasonIdx',true)+'</div><div id="drBody"></div></div>';
   view.innerHTML=html; drawDraft();
 }
 /* All-time draft value: every pick across every season, credited to the drafter. */
@@ -874,9 +871,10 @@ function allTimeDraftTable(){
   return h+'</tbody></table></div>';
 }
 function drawDraft(){
+  const body=document.getElementById('drBody');
+  if(drSeasonIdx===-1){ body.innerHTML=allTimeDraftTable() || '<div class="empty">No draft history yet.</div>'; return; }
   const s=D.seasons[drSeasonIdx];
   const picks=s.draftPicks||[];
-  const body=document.getElementById('drBody');
   if(!picks.length){ body.innerHTML='<div class="empty">No draft data for this season.</div>'; return; }
 
   // who drafted: picked_by user_id; map slot -> owner via round-1 picks
