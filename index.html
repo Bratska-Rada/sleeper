@@ -285,8 +285,9 @@ document.getElementById('lid').textContent = LEAGUE_ID;
    Paste your Cloudflare Worker URL here after you deploy it (see the worker file).
    Until you do, the Bot tab runs in "local mode" where you can paste your own
    free Google AI Studio key (from aistudio.google.com) to test on your own machine. */
-const BOT_ENDPOINT = "https://spring-flower-f04c.eugenec1993.workers.dev";                  // e.g. "https://league-bot.yourname.workers.dev"
-const BOT_MODEL = "gemini-2.5-flash";     // free-tier model; sharper. Use "gemini-2.5-flash" for a more settled free cap.
+const BOT_ENDPOINT = "https://spring-flower-f04c.eugenec1993.workers.dev";  // your Cloudflare Worker
+const BOT_MODEL = "gemini-2.5-flash";        // primary model (steadier free capacity)
+const BOT_FALLBACK_MODEL = "gemini-2.5-flash-lite"; // used automatically if the primary is overloaded (503)
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 /* ===================================================== */
 let BYO_KEY = ""; // in-memory only, never saved
@@ -1061,25 +1062,51 @@ async function callBot(userText){
   };
 
   // Transport: deployed Worker (key stays server-side), or local bring-your-own-key.
-  if(BOT_ENDPOINT){
-    const r = await fetch(BOT_ENDPOINT, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({model:BOT_MODEL, payload})
-    });
-    if(!r.ok){ const t=await r.text(); throw new Error('Worker error '+r.status+'. '+t.slice(0,140)); }
-    return extractText(await r.json());
-  }
-  if(BYO_KEY){
-    const url = `${GEMINI_URL}/${BOT_MODEL}:generateContent`;
-    const r = await fetch(url, {
+  // Both retry on 503 (Gemini overloaded), then fall back to the lighter model.
+  const sleep = ms => new Promise(res=>setTimeout(res,ms));
+
+  async function tryOnce(model){
+    if(BOT_ENDPOINT){
+      const r = await fetch(BOT_ENDPOINT, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({model, payload})
+      });
+      return r;
+    }
+    const url = `${GEMINI_URL}/${model}:generateContent`;
+    return fetch(url, {
       method:'POST',
       headers:{'Content-Type':'application/json','x-goog-api-key':BYO_KEY},
       body: JSON.stringify(payload)
     });
-    if(!r.ok){ const t=await r.text(); throw new Error('Gemini error '+r.status+': '+t.slice(0,160)); }
-    return extractText(await r.json());
   }
-  throw new Error('NO_TRANSPORT');
+
+  if(!BOT_ENDPOINT && !BYO_KEY) throw new Error('NO_TRANSPORT');
+
+  // Try primary model with retries, then the fallback model with retries.
+  const models = [BOT_MODEL, BOT_FALLBACK_MODEL].filter(Boolean);
+  let lastErr = '';
+  for(let mi=0; mi<models.length; mi++){
+    const model = models[mi];
+    for(let attempt=0; attempt<3; attempt++){
+      let r;
+      try{ r = await tryOnce(model); }
+      catch(e){ lastErr = String(e.message||e); break; } // network fail → try next model
+      if(r.ok) return extractText(await r.json());
+      const body = await r.text();
+      lastErr = 'HTTP '+r.status+' '+body.slice(0,160);
+      // 503/429/500 = overloaded or rate-limited → wait and retry, then fall back
+      if(r.status===503 || r.status===429 || r.status===500){
+        await sleep(800*(attempt+1)); // 0.8s, 1.6s, 2.4s
+        continue;
+      }
+      break; // other errors won't fix themselves; stop retrying this model
+    }
+  }
+  // Everything failed.
+  if(/503|overloaded|high demand|UNAVAILABLE/i.test(lastErr))
+    return "⚠️ Gemini is overloaded right now (that's on Google's end, not your setup). Give it a minute and try again.";
+  return '⚠️ '+lastErr;
 }
 function extractText(data){
   if(data && data.error) return '⚠️ '+(data.error.message||'API error');
