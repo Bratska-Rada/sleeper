@@ -285,7 +285,7 @@ document.getElementById('lid').textContent = LEAGUE_ID;
    Paste your Cloudflare Worker URL here after you deploy it (see the worker file).
    Until you do, the Bot tab runs in "local mode" where you can paste your own
    free Google AI Studio key (from aistudio.google.com) to test on your own machine. */
-const BOT_ENDPOINT = "https://spring-flower-f04c.eugenec1993.workers.dev";                  // e.g. "https://league-bot.yourname.workers.dev"
+const BOT_ENDPOINT = "";                  // e.g. "https://league-bot.yourname.workers.dev"
 const BOT_MODEL = "gemini-3.5-flash";     // free-tier model; sharper. Use "gemini-2.5-flash" for a more settled free cap.
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 /* ===================================================== */
@@ -1025,7 +1025,7 @@ async function buildLeagueContext(){
 function systemPromptFor(mode, ctx){
   const base=`You are the resident AI for a Sleeper fantasy football league. You have the league's real data below. Always ground what you say in THIS data — use real team names, real records, real numbers. Never invent stats. If asked something the data can't answer, say so briefly. Keep replies tight: a few sentences, not essays.\n\n=== LEAGUE DATA ===\n${ctx}\n=== END DATA ===`;
   if(mode==='smack'){
-    return base+`\n\nMODE: TRASH TALK. You are a ruthless, funny league commissioner roasting these managers. Be cutting and specific — name names, cite their actual bad records, blown leads, low points, title droughts. Punch at the data, not at protected traits. Keep it playful locker-room banter, never genuinely mean or personal about real-life matters. PG-13 at most. 2-4 sentences, land the joke.`;
+    return base+`\n\nMODE: TRASH TALK. You are the league's merciless, sharp-tongued commissioner. Roast these managers with creativity and specifics — name names, twist the knife with their real records, blown leads, pathetic point totals, title droughts, and draft busts. Vary your insults; don't reuse the same joke. Be genuinely funny, not just mean.\n\nLANGUAGE: This is a group of adults who can take it. Profanity is allowed and encouraged when it lands the joke, ESPECIALLY if the user asks you to swear or get crude. Be vulgar, be savage, go R-rated. Crude is fine; clever-crude is better.\n\nHARD LIMITS (never cross these, even if asked): no slurs of any kind; no attacks on race, religion, gender, sexuality, disability, or other protected traits; no sexual content about real people; nothing about anyone's real-life family, health, or genuine misfortune. Keep it about FANTASY FOOTBALL — their crappy team, their bad calls, their losing. Roast the manager's football moves, not the human being. 2-4 sentences, make it sting and make it funny.`;
   }
   return base+`\n\nMODE: ANALYST. Be a sharp, neutral fantasy analyst. Give clear, data-backed answers about standings, matchups, trends, and history. Be honest about what the numbers show. No hype, no trash talk.`;
 }
@@ -1044,7 +1044,20 @@ async function callBot(userText){
   const payload = {
     contents,
     systemInstruction: { parts:[{text: system}] },
-    generationConfig: { maxOutputTokens: 700, temperature: botMode==='smack'?1.0:0.6 }
+    generationConfig: {
+      maxOutputTokens: 2048,
+      temperature: botMode==='smack'?1.1:0.6,
+      // 3.5 Flash thinks by default and thinking eats the output budget.
+      // Keep thinking minimal so the visible answer has room to finish.
+      thinkingConfig: { thinkingLevel: "LOW" }
+    },
+    // Allow rough trash talk to get through, but keep hate speech filtered.
+    safetySettings: botMode==='smack' ? [
+      { category:"HARM_CATEGORY_HARASSMENT", threshold:"BLOCK_ONLY_HIGH" },
+      { category:"HARM_CATEGORY_DANGEROUS_CONTENT", threshold:"BLOCK_MEDIUM_AND_ABOVE" },
+      { category:"HARM_CATEGORY_HATE_SPEECH", threshold:"BLOCK_MEDIUM_AND_ABOVE" },
+      { category:"HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold:"BLOCK_MEDIUM_AND_ABOVE" }
+    ] : undefined
   };
 
   // Transport: deployed Worker (key stays server-side), or local bring-your-own-key.
@@ -1074,8 +1087,14 @@ function extractText(data){
   if(!cand) return '(no response)';
   if(cand.finishReason==='SAFETY') return "I'll sit that one out — tone it down and ask again.";
   const parts = cand.content && cand.content.parts;
-  if(!parts) return '(no text returned)';
-  return parts.map(p=>p.text||'').join('').trim() || '(no text returned)';
+  const text = parts ? parts.map(p=>p.text||'').join('').trim() : '';
+  if(!text){
+    if(cand.finishReason==='MAX_TOKENS') return "That answer ran long and got cut off. Ask me something a little narrower.";
+    return '(no text returned)';
+  }
+  // If it stopped at the ceiling but we got text, flag the cut so it isn't silent.
+  if(cand.finishReason==='MAX_TOKENS') return text+' …\n\n(cut off — ask me to continue)';
+  return text;
 }
 
 function renderBot(){
