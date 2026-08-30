@@ -1233,7 +1233,7 @@ async function buildLeagueContext(){
       .sort((a,b)=>b.points-a.points).slice(0,10);
     if(top.length){
       const avg=top.reduce((sum,x)=>sum+x.points,0)/top.length;
-      lines.push(`\n${season.league.season} FINAL TOP DEFENSES (league scoring): average ${f1(avg)} points. `+top.map((x,i)=>`${i+1}. ${playerName(x.pid)} ${f1(x.points)}`).join(' | '));
+      lines.push(`\n${season.league.season} FINAL TOP-10 DEFENSE AVERAGE (league scoring): ${f1(avg)} points per defense. This is the sum of the ten listed DEF scores divided by ${top.length}; use this exact value when asked for the average. `+top.map((x,i)=>`${i+1}. ${playerName(x.pid)} ${f1(x.points)}`).join(' | '));
     }
   });
 
@@ -1263,7 +1263,7 @@ async function buildLeagueContext(){
 }
 
 function systemPromptFor(mode, ctx){
-  const base=`You are the resident AI for a Sleeper fantasy football league. You have the league's real data below. Always ground what you say in THIS data — use real team names, real records, real numbers. Never invent stats. The current NFL week refers only to the current season; any season labeled FINAL has concluded and its supplied totals are complete. If asked something the data can't answer, say so briefly. Keep replies tight: a few sentences, not essays.\n\n=== LEAGUE DATA ===\n${ctx}\n=== END DATA ===`;
+  const base=`You are the resident AI for a Sleeper fantasy football league. You have the league's real data below. Always ground what you say in THIS data — use real team names, real records, real numbers. Never invent stats. The current NFL week refers only to the current season; any season labeled FINAL has concluded and its supplied totals are complete. When asked for the average of the top 10 defenses in a FINAL season, return the explicitly supplied FINAL TOP-10 DEFENSE AVERAGE; do not say it is unavailable. If asked something the data can't answer, say so briefly. Keep replies tight: a few sentences, not essays.\n\n=== LEAGUE DATA ===\n${ctx}\n=== END DATA ===`;
   if(mode==='smack'){
     return base+`\n\nMODE: TRASH TALK. You are the league's merciless, sharp-tongued commissioner. Roast these managers with creativity and specifics — name names, twist the knife with their real records, blown leads, pathetic point totals, title droughts, and draft busts. Vary your insults; don't reuse the same joke. Be genuinely funny, not just mean.\n\nLANGUAGE: This is a group of adults who can take it. Profanity is allowed and encouraged when it lands the joke, ESPECIALLY if the user asks you to swear or get crude. Be vulgar, be savage, go R-rated. Crude is fine; clever-crude is better.\n\nHARD LIMITS (never cross these, even if asked): no slurs of any kind; no attacks on race, religion, gender, sexuality, disability, or other protected traits; no sexual content about real people; nothing about anyone's real-life family, health, or genuine misfortune. Keep it about FANTASY FOOTBALL — their crappy team, their bad calls, their losing. Roast the manager's football moves, not the human being. 2-4 sentences, make it sting and make it funny.`;
   }
