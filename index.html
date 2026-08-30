@@ -301,7 +301,7 @@ let BYO_KEY = ""; // in-memory only, never saved
 /* ---------- tiny fetch helper with cache ---------- */
 const _cache = new Map();
 const CACHE_PREFIX='league-hq:';
-const CACHE_TTL=1000*60*10;
+const CACHE_TTL=0; // live dashboard: always load fresh Sleeper data on page load
 const cacheKey=url=>CACHE_PREFIX+btoa(url).replace(/=/g,'');
 async function getJSON(url){
   if(_cache.has(url)) return _cache.get(url);
