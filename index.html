@@ -1225,6 +1225,18 @@ async function buildLeagueContext(){
   lines.push('\nCURRENT-SEASON DRAFTS (pick and points through the current week):');
   cur.rosters.forEach(r=>{const picks=(picksByOwner[r.owner_id]||[]).sort((x,y)=>(x.round-y.round)||(x.draft_slot-y.draft_slot));if(!picks.length)return;const total=picks.reduce((n,p)=>n+(cur.playerPoints[p.player_id]||0),0);lines.push(`${nameOf(r.owner_id)} — ${picks.length} picks, ${f1(total)} total draft-player points: ${picks.map(p=>`R${p.round} ${playerName(p.player_id)} ${f1(cur.playerPoints[p.player_id]||0)}`).join('; ')}`);});
 
+  // completed-season DST leaderboards: scoring is final for these seasons.
+  D.seasons.filter(seasonComplete).forEach(season=>{
+    const top=Object.entries(season.playerPoints||{})
+      .filter(([pid])=>D.players&&D.players[pid]&&D.players[pid].position==='DEF')
+      .map(([pid,points])=>({pid,points:+points||0}))
+      .sort((a,b)=>b.points-a.points).slice(0,10);
+    if(top.length){
+      const avg=top.reduce((sum,x)=>sum+x.points,0)/top.length;
+      lines.push(`\n${season.league.season} FINAL TOP DEFENSES (league scoring): average ${f1(avg)} points. `+top.map((x,i)=>`${i+1}. ${playerName(x.pid)} ${f1(x.points)}`).join(' | '));
+    }
+  });
+
   // champions
   const champs=D.seasons.filter(seasonComplete).map(s=>`${s.league.season}: ${nameOf(championOf(s))}`);
   if(champs.length) lines.push('\nPAST CHAMPIONS — '+champs.join(' | '));
@@ -1251,7 +1263,7 @@ async function buildLeagueContext(){
 }
 
 function systemPromptFor(mode, ctx){
-  const base=`You are the resident AI for a Sleeper fantasy football league. You have the league's real data below. Always ground what you say in THIS data — use real team names, real records, real numbers. Never invent stats. If asked something the data can't answer, say so briefly. Keep replies tight: a few sentences, not essays.\n\n=== LEAGUE DATA ===\n${ctx}\n=== END DATA ===`;
+  const base=`You are the resident AI for a Sleeper fantasy football league. You have the league's real data below. Always ground what you say in THIS data — use real team names, real records, real numbers. Never invent stats. The current NFL week refers only to the current season; any season labeled FINAL has concluded and its supplied totals are complete. If asked something the data can't answer, say so briefly. Keep replies tight: a few sentences, not essays.\n\n=== LEAGUE DATA ===\n${ctx}\n=== END DATA ===`;
   if(mode==='smack'){
     return base+`\n\nMODE: TRASH TALK. You are the league's merciless, sharp-tongued commissioner. Roast these managers with creativity and specifics — name names, twist the knife with their real records, blown leads, pathetic point totals, title droughts, and draft busts. Vary your insults; don't reuse the same joke. Be genuinely funny, not just mean.\n\nLANGUAGE: This is a group of adults who can take it. Profanity is allowed and encouraged when it lands the joke, ESPECIALLY if the user asks you to swear or get crude. Be vulgar, be savage, go R-rated. Crude is fine; clever-crude is better.\n\nHARD LIMITS (never cross these, even if asked): no slurs of any kind; no attacks on race, religion, gender, sexuality, disability, or other protected traits; no sexual content about real people; nothing about anyone's real-life family, health, or genuine misfortune. Keep it about FANTASY FOOTBALL — their crappy team, their bad calls, their losing. Roast the manager's football moves, not the human being. 2-4 sentences, make it sting and make it funny.`;
   }
