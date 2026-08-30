@@ -328,7 +328,7 @@ const D = {
   state:null, seasons:[], // [{league, users, rosters, winners, losers, drafts, userById, rosterById}]
   usersAll:{}, // user_id -> user (latest)
   matchupsLoaded:false, draftLoaded:false, txnLoaded:false, playersLoaded:false,
-  players:null
+  players:null, projections:null, projectionKey:null
 };
 
 function nameOf(uid){
@@ -424,6 +424,45 @@ async function ensureMatchups(){
     s.playerPoints = pp;
   }));
   D.matchupsLoaded=true;
+}
+
+
+/* Weekly projection feed + a transparent matchup-probability model. */
+async function ensureWeekProjections(season,week){
+  const key=`${season}:${week}`;
+  if(D.projectionKey===key) return;
+  D.projectionKey=key; D.projections={};
+  const urls=[
+    `https://api.sleeper.app/projections/nfl/${season}/${week}?season_type=regular`,
+    `https://api.sleeper.com/projections/nfl/${season}/${week}?season_type=regular`
+  ];
+  for(const url of urls){
+    try{
+      const raw=await getJSON(url);
+      const rows=Array.isArray(raw)?raw:(Array.isArray(raw&&raw.players)?raw.players:Object.values(raw||{}));
+      const byId={};
+      rows.forEach(p=>{const id=p&&(p.player_id||p.playerId||p.id);if(id)byId[id]=p;});
+      if(Object.keys(byId).length){D.projections=byId;return;}
+    }catch(e){}
+  }
+}
+function projectedPlayerPoints(pid,scoring){
+  const p=D.projections&&D.projections[pid], stats=p&&(p.stats||p.projections||p);
+  if(!stats) return 0;
+  let total=0,hasStats=false;
+  Object.entries(scoring||{}).forEach(([stat,mult])=>{
+    const v=Number(stats[stat]),m=Number(mult);
+    if(Number.isFinite(v)&&Number.isFinite(m)){total+=v*m;hasStats=true;}
+  });
+  // Sleeper's half-PPR total is a safe fallback when the projection feed omits raw stats.
+  return hasStats ? total : Number(stats.pts_half_ppr||stats.pts_ppr||p.pts_half_ppr||0);
+}
+function projectedTeamPoints(entry,scoring){
+  return (entry.starters||[]).filter(pid=>pid&&pid!=='0').reduce((sum,pid)=>sum+projectedPlayerPoints(pid,scoring),0);
+}
+function winProbability(own,opp){
+  // Logistic model: a 15-point projection edge is roughly a 73% favorite.
+  return 100/(1+Math.exp(-(own-opp)/15));
 }
 
 /* head to head + all-play from matchups */
@@ -613,9 +652,9 @@ function miniStandingsTable(st){
    THIS WEEK
 ================================================================= */
 async function renderThisWeek(){
-  await ensureMatchups();
   const cur=D.seasons[0];
   const requested=Math.min(D.state.week||1,18);
+  await Promise.all([ensureMatchups(),ensureWeekProjections(cur.league.season,requested)]);
   let week=(cur.weeks||[]).find(x=>x.w===requested);
   if(!week) week=[...(cur.weeks||[])].sort((a,b)=>b.w-a.w)[0];
   if(!week){ view.innerHTML='<div class="empty">This week’s matchups are not available yet.</div>'; return; }
@@ -628,9 +667,13 @@ async function renderThisWeek(){
   let h=`<div class="fade"><div class="section-title">Week ${week.w} Scoreboard</div><div class="section-note">Scores update from Sleeper. Use Refresh data to pull a fresh snapshot.</div>`;
   if(high&&low)h+=`<div class="stat-row"><div class="stat panel"><div class="k">High Score</div><div class="v num" style="font-size:20px">${esc(nameOf(owner(high)))} <small>${f1(high.points)}</small></div></div><div class="stat panel"><div class="k">Low Score</div><div class="v num" style="font-size:20px">${esc(nameOf(owner(low)))} <small>${f1(low.points)}</small></div></div><div class="stat panel"><div class="k">Matchups</div><div class="v num">${pairs.length}</div></div></div>`;
   h+='<div class="grid">';
+  const projectionsAvailable=Object.keys(D.projections||{}).length>0;
   pairs.sort((a,b)=>Math.abs((a[0].points||0)-(a[1].points||0))-Math.abs((b[0].points||0)-(b[1].points||0))).forEach(pair=>{
     const [a,b]=pair, ao=owner(a),bo=owner(b), diff=Math.abs((a.points||0)-(b.points||0));
-    h+=`<div class="panel pad"><div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px"><div>${teamCell(ao)}</div><div class="num" style="font-size:24px;text-align:center">${f1(a.points)}<div style="font-size:11px;color:var(--muted);margin:3px 0">${diff<8?'CLOSE MATCHUP':'vs'}</div>${f1(b.points)}</div><div style="justify-self:end">${teamCell(bo)}</div></div></div>`;
+    const ap=projectedTeamPoints(a,cur.league.scoring_settings), bp=projectedTeamPoints(b,cur.league.scoring_settings);
+    const aw=winProbability(ap,bp), bw=100-aw;
+    const projection=projectionsAvailable?`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)"><span>Projection: <b style="color:var(--text)">${f1(ap)}</b> · Win: <b style="color:var(--turf)">${f1(aw)}%</b></span><span style="text-align:right">Projection: <b style="color:var(--text)">${f1(bp)}</b> · Win: <b style="color:var(--turf)">${f1(bw)}%</b></span></div>`:'<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)">Weekly player projections are not available from Sleeper yet.</div>';
+    h+=`<div class="panel pad"><div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px"><div>${teamCell(ao)}</div><div class="num" style="font-size:24px;text-align:center">${f1(a.points)}<div style="font-size:11px;color:var(--muted);margin:3px 0">${diff<8?'CLOSE MATCHUP':'vs'}</div>${f1(b.points)}</div><div style="justify-self:end">${teamCell(bo)}</div></div>${projection}</div>`;
   });
   h+='</div></div>'; view.innerHTML=h;
 }
