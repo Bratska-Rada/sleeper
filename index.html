@@ -415,7 +415,8 @@ async function ensureMatchups(){
       Array.from({length:lastWeek},(_,i)=>i+1).map(w=>
         getJSON(`${BASE}/league/${s.league.league_id}/matchups/${w}`).then(d=>({w,d})).catch(()=>({w,d:[]})))
     );
-    s.weeks = weeks.filter(x=>Array.isArray(x.d) && x.d.some(e=>e && e.points!=null && e.points>0));
+    // Keep future/current scheduled matchups too; they usually start at 0 points.
+    s.weeks = weeks.filter(x=>Array.isArray(x.d) && x.d.some(e=>e && (e.matchup_id!=null || (e.points!=null && e.points>0))));
     s.playoffStart = pStart;
     // season total points per player_id (for draft production)
     const pp={};
