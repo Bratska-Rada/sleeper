@@ -1206,7 +1206,7 @@ let botBusy=false;
 
 /* Build a compact, factual snapshot of the league for the model. */
 async function buildLeagueContext(){
-  await ensureMatchups();
+  await Promise.all([ensureMatchups(), ensurePlayers(), ensureDrafts()]);
   const cur=D.seasons[0];
   const lines=[];
   lines.push(`League: ${cur.league.name||'Fantasy League'} (${cur.league.season} season, ${cur.league.total_rosters||cur.rosters.length} teams).`);
@@ -1216,6 +1216,14 @@ async function buildLeagueContext(){
   const st=standingsArr(cur);
   lines.push('\nCURRENT STANDINGS (rank. team — W-L, PF, PA):');
   st.forEach((r,i)=>lines.push(`${i+1}. ${nameOf(r.owner)} — ${r.w}-${r.l}${r.t?'-'+r.t:''}, PF ${f1(r.pf)}, PA ${f1(r.pa)}`));
+
+  const label=pid=>`${playerName(pid)}${playerMeta(pid)?' ('+playerMeta(pid)+')':''}`;
+  lines.push('\nCURRENT ROSTERS (starters | bench):');
+  cur.rosters.forEach(r=>{const starters=(r.starters||[]).filter(pid=>pid&&pid!=='0');const started=new Set(starters);const bench=(r.players||[]).filter(pid=>!started.has(pid));lines.push(`${nameOf(r.owner_id)} — Starters: ${starters.map(label).join(', ')||'not set'} | Bench: ${bench.map(label).join(', ')||'none'}`);});
+  const picksByOwner={};
+  (cur.draftPicks||[]).forEach(p=>{const o=p.picked_by||(cur.rosterById[p.roster_id]&&cur.rosterById[p.roster_id].owner_id);if(o)(picksByOwner[o]=picksByOwner[o]||[]).push(p);});
+  lines.push('\nCURRENT-SEASON DRAFTS (pick and points through the current week):');
+  cur.rosters.forEach(r=>{const picks=(picksByOwner[r.owner_id]||[]).sort((x,y)=>(x.round-y.round)||(x.draft_slot-y.draft_slot));if(!picks.length)return;const total=picks.reduce((n,p)=>n+(cur.playerPoints[p.player_id]||0),0);lines.push(`${nameOf(r.owner_id)} — ${picks.length} picks, ${f1(total)} total draft-player points: ${picks.map(p=>`R${p.round} ${playerName(p.player_id)} ${f1(cur.playerPoints[p.player_id]||0)}`).join('; ')}`);});
 
   // champions
   const champs=D.seasons.filter(seasonComplete).map(s=>`${s.league.season}: ${nameOf(championOf(s))}`);
