@@ -1218,10 +1218,19 @@ async function buildLeagueContext(){
   st.forEach((r,i)=>lines.push(`${i+1}. ${nameOf(r.owner)} — ${r.w}-${r.l}${r.t?'-'+r.t:''}, PF ${f1(r.pf)}, PA ${f1(r.pa)}`));
 
   const label=pid=>`${playerName(pid)}${playerMeta(pid)?' ('+playerMeta(pid)+')':''}`;
-  lines.push('\nCURRENT ROSTERS (starters | bench):');
-  cur.rosters.forEach(r=>{const starters=(r.starters||[]).filter(pid=>pid&&pid!=='0');const started=new Set(starters);const bench=(r.players||[]).filter(pid=>!started.has(pid));lines.push(`${nameOf(r.owner_id)} — Starters: ${starters.map(label).join(', ')||'not set'} | Bench: ${bench.map(label).join(', ')||'none'}`);});
   const picksByOwner={};
   (cur.draftPicks||[]).forEach(p=>{const o=p.picked_by||(cur.rosterById[p.roster_id]&&cur.rosterById[p.roster_id].owner_id);if(o)(picksByOwner[o]=picksByOwner[o]||[]).push(p);});
+  lines.push(`CURRENT ROSTER SEASON: ${cur.league.season}. All current-roster and current-draft data below is for ${cur.league.season}; historical data is labeled separately.`);
+  lines.push('\nCURRENT ROSTERS (starters | bench | draft picks pending Sleeper roster sync):');
+  cur.rosters.forEach(r=>{
+    const starters=(r.starters||[]).filter(pid=>pid&&pid!=='0');
+    const started=new Set(starters);
+    const rosterIds=(r.players||[]).filter(Boolean);
+    const rosterSet=new Set(rosterIds);
+    const pending=(picksByOwner[r.owner_id]||[]).map(p=>p.player_id).filter(pid=>pid&&!rosterSet.has(pid));
+    const bench=rosterIds.filter(pid=>!started.has(pid));
+    lines.push(`${nameOf(r.owner_id)} — Starters: ${starters.map(label).join(', ')||'not set'} | Bench: ${bench.map(label).join(', ')||'none'} | Drafted (pending Sleeper roster sync): ${pending.map(label).join(', ')||'none'}`);
+  });
   lines.push('\nCURRENT-SEASON DRAFTS (pick and points through the current week):');
   cur.rosters.forEach(r=>{const picks=(picksByOwner[r.owner_id]||[]).sort((x,y)=>(x.round-y.round)||(x.draft_slot-y.draft_slot));if(!picks.length)return;const total=picks.reduce((n,p)=>n+(cur.playerPoints[p.player_id]||0),0);lines.push(`${nameOf(r.owner_id)} — ${picks.length} picks, ${f1(total)} total draft-player points: ${picks.map(p=>`R${p.round} ${playerName(p.player_id)} ${f1(cur.playerPoints[p.player_id]||0)}`).join('; ')}`);});
 
